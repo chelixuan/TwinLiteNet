@@ -1,7 +1,22 @@
 # TwinLiteNet: An Efficient and Lightweight Model for Driveable Area and Lane Segmentation in Self-Driving Cars
 
+## Detail Information
+For more detail information, please refer to the original [chequanghuy/TwinLiteNet](https://github.com/chequanghuy/TwinLiteNet).
 
+## Mobile or Edge device deploy
+This repository is forked from [chequanghuy/TwinLiteNet](https://github.com/chequanghuy/TwinLiteNet). Modified the time-consuming rknn operator nodes in the original network structure. The modified network can be efficiently deployed on 
+Rockchip chips. More detail information can refer to [airockchip/rknn-toolkit2](https://github.com/airockchip/rknn-toolkit2). 
 
+### Time Consumption of RKNN Model
+Time consumption of the original network:
+<div align=center>
+<img src='rknn_op_time_consume/original_network.png' width='600'>
+</div>
+
+Time consumption of the modified network:
+<div align=center>
+<img src='rknn_op_time_consume/remove-2-permute_add-conv1d.png' width='600'>
+</div>
 
 ## Requirement
 See `requirements.txt` for additional dependencies and version requirements.
