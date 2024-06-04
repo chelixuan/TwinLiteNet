@@ -1,8 +1,36 @@
+'''
+ # @ Author: chelixuan@buaa.edu.cn
+ # @ Modified time: 2024-06-04 10:58:26
+ '''
+
 import torch
 import torch.nn as nn
 
+# Softmax 对 rknn 而言是低效算子，避免使用
+# from torch.nn import Module, Conv2d, Parameter, Softmax 
+from torch.nn import Module, Conv2d, Parameter
 
-from torch.nn import Module, Conv2d, Parameter, Softmax
+'''
+from torch.autograd import Function
+class Softmax(Function):
+    @staticmethod
+    def forward(ctx, input):
+
+        ctx.save_for_backward(input)
+        # result = torch.softmax(input, dim=-1)
+        result = torch.nn.functional.softmax(input, dim=-1)
+
+        return result
+    
+    @staticmethod
+    def backward(ctx, grad_output):
+        input, = ctx.saved_variables
+        grad_input = grad_output.clone()
+        # grad_input = grad_input * input.softmax(dim=-1) * (1.0 - input.softmax(dim=-1))
+        grad_input = grad_input * torch.nn.functional.softmax(input, dim=-1) * (1.0 - torch.nn.functional.softmax(input, dim=-1))
+        
+        return grad_input
+'''
 
 class PAM_Module(Module):
     """ Position attention module"""
@@ -15,8 +43,11 @@ class PAM_Module(Module):
         self.key_conv = Conv2d(in_channels=in_dim, out_channels=in_dim//8, kernel_size=1)
         self.value_conv = Conv2d(in_channels=in_dim, out_channels=in_dim, kernel_size=1)
         self.gamma = Parameter(torch.zeros(1))
+        # clx ---------------------------------------------------------
+        self.leakyrelu = torch.nn.LeakyReLU()
+        self.conv1d = torch.nn.Conv1d(in_channels=3600, out_channels=3600, kernel_size=1, stride=1)
+        # -------------------------------------------------------------
 
-        self.softmax = Softmax(dim=-1)
     def forward(self, x):
         """
             inputs :
@@ -25,27 +56,66 @@ class PAM_Module(Module):
                 out : attention value + input feature
                 attention: B X (HxW) X (HxW)
         """
-        m_batchsize, C, height, width = x.size()
-        proj_query = self.query_conv(x).view(m_batchsize, -1, width*height).permute(0, 2, 1)
-        proj_key = self.key_conv(x).view(m_batchsize, -1, width*height)
-        energy = torch.bmm(proj_query, proj_key)
-        attention = self.softmax(energy)
-        proj_value = self.value_conv(x).view(m_batchsize, -1, width*height)
+        m_batchsize, C, height, width = x.size() # bs, 32, 45, 80 (输入图片尺度为 360， 640)
+        # original ------------------------------------------------------------------------------
+        # proj_query = self.query_conv(x).view(m_batchsize, -1, width*height).permute(0, 2, 1)
+        # clx -----------------------------------------------------------------------------------
+        # 经验证此修改仍可以训练出有效模型（去除一个矩阵转置“permute”， 从 rknn 结构可视化上，确实去掉了一个耗时的 Transpose算子）
+        proj_query = self.query_conv(x).view(m_batchsize, -1, C//8)  # bs, 3600, 4
+        # ---------------------------------------------------------------------------------------
 
-        out = torch.bmm(proj_value, attention.permute(0, 2, 1))
+        proj_key = self.key_conv(x).view(m_batchsize, -1, width*height) # bs, 4, 3600
+
+        # original code: 这个 bmm 在转 rknn 时会转换成其他高效算子，不影响rknn inference 速度 -------
+        # proj_value = self.value_conv(x).view(m_batchsize, -1, width*height)
+        # energy = torch.bmm(proj_query, proj_key)
+        # attention = self.softmax(energy)
+        # out = torch.bmm(proj_value, attention.permute(0, 2, 1))
+        # ---------------------------------------------------------------------------------------
+        
+        # clx: 尝试去掉 PAM 模块中第二个 Transpose ------------------------------------------------
+        proj_value = self.value_conv(x).view(m_batchsize, -1, width*height) # bs， 32， 3600
+        
+        energy = torch.bmm(proj_query, proj_key)
+        attention = self.leakyrelu(energy)
+        # 【原始代码】：先对 attention 进行转置，再进行矩阵乘 
+        # permuted_attention = attention.permute(0, 2, 1)
+        # out = torch.bmm(proj_value, permuted_attention)
+        
+        # ×【方法一】：attention.shape: 1*3600*3600, 转置(0, 2, 1) 仍旧为 1*3600*3600; 尝试不进行转置，直接进行矩阵乘
+        # 从中间 ckpt 转 rknn 的结构可视化上看，可以再次去掉一个 Transpose,顺便还去掉了一个矩阵乘
+        # 验证结果的正确性 --> 精度上损失较大
+        # out = torch.bmm(proj_value, attention)
+
+        # ×【方法二】：因方法一不转置精度上预测损失比较大，因此尝试添加 Conv 替代 permute，看是否可以弥补损失的精度
+        # 为了使用卷积，先将 attention 扩充一个维度，卷积操作结束后，再去掉这个维度
+        # 该方法可以弥补台阶的一些损失，但是仍旧有明显的损失。且 Reshape 耗时明显增加，并没有影响 矩阵乘 的数量
+        # attention = attention.view(m_batchsize, 1, width*height, width*height)
+        # attention = self.clx_conv(attention)
+        # attention = attention.view(m_batchsize, width*height, width*height)
+        # out = torch.bmm(proj_value, attention)
+
+        # √【方法三】：方法二增加了两个 view，在转 RKNN 时 Reshape 十分耗时，为了解决这个问题，不扩充到 4维，直接增加conv1d
+        # 不仅去掉了第二个 Transpose 节点，同时去掉了一个 MatMul，且模型效果影响不大
+        attention = self.conv1d(attention)
+        out = torch.bmm(proj_value, attention)
+        # ---------------------------------------------------------------------------------------
+
         out = out.view(m_batchsize, C, height, width)
 
         out = self.gamma*out + x
         return out
+    
 class CAM_Module(Module):
     """ Channel attention module"""
     def __init__(self, in_dim):
         super(CAM_Module, self).__init__()
         self.chanel_in = in_dim
-
-
         self.gamma = Parameter(torch.zeros(1))
-        self.softmax  = Softmax(dim=-1)
+        # clx ---------------------------------------------------------
+        self.leakyrelu = torch.nn.LeakyReLU()
+        # -------------------------------------------------------------
+
     def forward(self,x):
         """
             inputs :
@@ -54,16 +124,19 @@ class CAM_Module(Module):
                 out : attention value + input feature
                 attention: B X C X C
         """
-        m_batchsize, C, height, width = x.size()
-        proj_query = x.view(m_batchsize, C, -1)
-        proj_key = x.view(m_batchsize, C, -1).permute(0, 2, 1)
-        energy = torch.bmm(proj_query, proj_key)
-        energy_new = torch.max(energy, -1, keepdim=True)[0].expand_as(energy)-energy
-        attention = self.softmax(energy_new)
-        proj_value = x.view(m_batchsize, C, -1)
+        # 由于 CAM_Module 中，整体矩阵较小，因此 Transpose、MatMul 这两个低效的 rknn 算子，对整体速度影响不大，可以不去除
+        m_batchsize, C, height, width = x.size() # bs, 32, 45, 80 (输入图片尺度为 360， 640)
+        proj_query = x.view(m_batchsize, C, -1) # bs, 32, 3600
+        proj_key = x.view(m_batchsize, C, -1).permute(0, 2, 1) # bs, 3600, 32
 
-        out = torch.bmm(attention, proj_value)
-        out = out.view(m_batchsize, C, height, width)
+        energy = torch.bmm(proj_query, proj_key) # bs, 32, 32
+
+        energy_new = torch.max(energy, -1, keepdim=True)[0].expand_as(energy)-energy
+        attention = self.leakyrelu(energy_new) # bs, 32, 32
+        proj_value = x.view(m_batchsize, C, -1) # bs, 32, 3600
+
+        out = torch.bmm(attention, proj_value) # bs, 32, 3600
+        out = out.view(m_batchsize, C, height, width) # bs, 32, 45, 80
 
         out = self.gamma*out + x
         return out
@@ -135,9 +208,6 @@ class CBR(nn.Module):
         output = self.act(output)
         return output
     
-
-
-
 
 class CB(nn.Module):
     '''
