@@ -1,115 +1,51 @@
 import torch
 import torch.nn as nn
 
-from torch.nn import Module, Parameter
 
-# ----------------------------------------------------------------------------------------
-# 使用 高效卷积运算，重新改写 PAM 模块
-# ----------------------------------------------------------------------------------------
+from torch.nn import Module, Conv2d, Parameter, Softmax
+
 class PAM_Module(Module):
     """ Position attention module"""
     #Ref from SAGAN
     def __init__(self, in_dim):
         super(PAM_Module, self).__init__()
         self.chanel_in = in_dim
+
+        self.query_conv = Conv2d(in_channels=in_dim, out_channels=in_dim//8, kernel_size=1)
+        self.key_conv = Conv2d(in_channels=in_dim, out_channels=in_dim//8, kernel_size=1)
+        self.value_conv = Conv2d(in_channels=in_dim, out_channels=in_dim, kernel_size=1)
         self.gamma = Parameter(torch.zeros(1))
-        # clx ---------------------------------------------------------
-        self.leakyrelu = torch.nn.LeakyReLU()
-        self.clx_conv2d_extend = torch.nn.Conv2d(
-            in_channels = self.chanel_in, 
-            out_channels = 2*self.chanel_in, 
-            kernel_size = 1, 
-            stride = 1
-        )
-        self.clx_conv2d_squz = torch.nn.Conv2d(
-            in_channels = 2*self.chanel_in, 
-            out_channels = self.chanel_in, 
-            kernel_size = 1, 
-            stride=1
-        )
-        self.clx_conv2d = torch.nn.Conv2d(
-            in_channels = self.chanel_in, 
-            out_channels = self.chanel_in, 
-            kernel_size = 1, 
-            stride=1
-        )
-        self.bn_extend = nn.BatchNorm2d(2 * self.chanel_in, eps=1e-03)
-        self.bn_squz = nn.BatchNorm2d(self.chanel_in, eps=1e-03)
-        self.bn = nn.BatchNorm2d(self.chanel_in, eps=1e-03)
 
-        # 激活 PReLU
-        # self.act_extend = nn.PReLU(2 * self.chanel_in)
-        # self.act_squz = nn.PReLU(self.chanel_in)
-        # self.act = nn.PReLU(self.chanel_in)
-
-        # 第一次改写 PAM 模块时，默认激活都是 nn.PReLU,全部修改为 nn.RReLU 再次实验
-        self.act_extend = nn.RReLU(lower=0.125, upper=0.3333333333333333)
-        self.act_squz = nn.RReLU(lower=0.125, upper=0.3333333333333333)
-        self.act = nn.RReLU(lower=0.125, upper=0.3333333333333333)
-        # -------------------------------------------------------------
-
-
-    def forward(self,x):
+        self.softmax = Softmax(dim=-1)
+    def forward(self, x):
         """
             inputs :
                 x : input feature maps( B X C X H X W)
             returns :
                 out : attention value + input feature
-                attention: B X C X C
+                attention: B X (HxW) X (HxW)
         """
-        # m_batchsize, C, height, width = x.size()    # bs, 32, 45, 80 (input_shape: 360, 640)
+        m_batchsize, C, height, width = x.size()
+        proj_query = self.query_conv(x).view(m_batchsize, -1, width*height).permute(0, 2, 1)
+        proj_key = self.key_conv(x).view(m_batchsize, -1, width*height)
+        energy = torch.bmm(proj_query, proj_key)
+        attention = self.softmax(energy)
+        proj_value = self.value_conv(x).view(m_batchsize, -1, width*height)
 
-        # extend
-        out = self.clx_conv2d_extend(x)
-        out = self.bn_extend(out)
-        out = self.act_extend(out)
-        # squeeze
-        out = self.clx_conv2d_squz(out)
-        out = self.bn_squz(out)
-        out = self.act_squz(out)
-        # conv
-        out = self.clx_conv2d(out)
-        out = self.bn(out)
-        out = self.act(out)
+        out = torch.bmm(proj_value, attention.permute(0, 2, 1))
+        out = out.view(m_batchsize, C, height, width)
 
         out = self.gamma*out + x
         return out
-
-
-# 使用高效的卷积，改写整个 CAM 模块
 class CAM_Module(Module):
     """ Channel attention module"""
     def __init__(self, in_dim):
         super(CAM_Module, self).__init__()
         self.chanel_in = in_dim
+
+
         self.gamma = Parameter(torch.zeros(1))
-        # clx ---------------------------------------------------------
-        self.leakyrelu = torch.nn.LeakyReLU()
-        self.clx_conv2d_extend = torch.nn.Conv2d(
-            in_channels = self.chanel_in, 
-            out_channels = 2*self.chanel_in, 
-            kernel_size = 1, 
-            stride = 1
-        )
-        self.clx_conv2d_squz = torch.nn.Conv2d(
-            in_channels = 2*self.chanel_in, 
-            out_channels = self.chanel_in, 
-            kernel_size = 1, 
-            stride=1
-        )
-        self.bn_extend = nn.BatchNorm2d(2 * self.chanel_in, eps=1e-03)
-        self.bn_squz = nn.BatchNorm2d(self.chanel_in, eps=1e-03)
-
-        # 激活 PReLU
-        # self.act_extend = nn.PReLU(2 * self.chanel_in)
-        # self.act_squz = nn.PReLU(self.chanel_in)
-
-        # 激活 RReLU
-        self.act_extend = nn.RReLU(lower=0.125, upper=0.3333333333333333)
-        self.act_squz = nn.RReLU(lower=0.125, upper=0.3333333333333333)
-        # -------------------------------------------------------------
-
-
+        self.softmax  = Softmax(dim=-1)
     def forward(self,x):
         """
             inputs :
@@ -118,16 +54,16 @@ class CAM_Module(Module):
                 out : attention value + input feature
                 attention: B X C X C
         """
-        # m_batchsize, C, height, width = x.size()    # bs, 32, 45, 80 (input_shape: 360, 640)
+        m_batchsize, C, height, width = x.size()
+        proj_query = x.view(m_batchsize, C, -1)
+        proj_key = x.view(m_batchsize, C, -1).permute(0, 2, 1)
+        energy = torch.bmm(proj_query, proj_key)
+        energy_new = torch.max(energy, -1, keepdim=True)[0].expand_as(energy)-energy
+        attention = self.softmax(energy_new)
+        proj_value = x.view(m_batchsize, C, -1)
 
-        # extend
-        out = self.clx_conv2d_extend(x)
-        out = self.bn_extend(out)
-        out = self.act_extend(out)
-        # squeeze
-        out = self.clx_conv2d_squz(out)
-        out = self.bn_squz(out)
-        out = self.act_squz(out)
+        out = torch.bmm(attention, proj_value)
+        out = out.view(m_batchsize, C, height, width)
 
         out = self.gamma*out + x
         return out
@@ -182,12 +118,7 @@ class CBR(nn.Module):
         self.conv = nn.Conv2d(nIn, nOut, (kSize, kSize), stride=stride, padding=(padding, padding), bias=False)
         #self.conv1 = nn.Conv2d(nOut, nOut, (1, kSize), stride=1, padding=(0, padding), bias=False)
         self.bn = nn.BatchNorm2d(nOut, eps=1e-03)
-
-        # original act -----------------------------------------------------------
-        # self.act = nn.PReLU(nOut)
-        # clx edit @ 20240618 ----------------------------------------------------
-        self.act = nn.RReLU(lower=0.125, upper=0.3333333333333333)
-        # ------------------------------------------------------------------------
+        self.act = nn.PReLU(nOut)
 
     def forward(self, input):
         '''
@@ -204,6 +135,9 @@ class CBR(nn.Module):
         output = self.act(output)
         return output
     
+
+
+
 
 class CB(nn.Module):
     '''
@@ -514,6 +448,8 @@ class TwinLiteNet(nn.Module):
         self.classifier_1 = UPx2(8,2)
         self.classifier_2 = UPx2(8,2)
 
+
+
     def forward(self, input):
 
         x=self.encoder(input)
@@ -521,8 +457,12 @@ class TwinLiteNet(nn.Module):
         x1=self.up_2_1(x1)
         classifier1=self.classifier_1(x1)
         
+        
+
         x2=self.up_1_2(x)
         x2=self.up_2_2(x2)
         classifier2=self.classifier_2(x2)
 
         return (classifier1,classifier2)
+
+

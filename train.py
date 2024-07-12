@@ -25,15 +25,25 @@ def train_net(args):
     if not os.path.exists(args.savedir):
         os.mkdir(args.savedir)
 
+    # original ----------------------------------------------------------------------------------------
+    # trainLoader = torch.utils.data.DataLoader(
+    #     myDataLoader.MyDataset(),
+    #     batch_size=args.batch_size, shuffle=True, num_workers=args.num_workers, pin_memory=True)
 
+
+    # valLoader = torch.utils.data.DataLoader(
+    #     myDataLoader.MyDataset(valid=True),
+    #     batch_size=args.batch_size, shuffle=False, num_workers=args.num_workers, pin_memory=True)
+    # -------------------------------------------------------------------------------------------------- 
     trainLoader = torch.utils.data.DataLoader(
-        myDataLoader.MyDataset(),
+        myDataLoader.MyDataset(input_height = args.hw[0], input_width = args.hw[1],),
         batch_size=args.batch_size, shuffle=True, num_workers=args.num_workers, pin_memory=True)
 
 
     valLoader = torch.utils.data.DataLoader(
-        myDataLoader.MyDataset(valid=True),
+        myDataLoader.MyDataset(input_height = args.hw[0], input_width = args.hw[1], valid=True),
         batch_size=args.batch_size, shuffle=False, num_workers=args.num_workers, pin_memory=True)
+    # --------------------------------------------------------------------------------------------------
 
     if cuda_available:
         args.onGPU = True
@@ -73,7 +83,8 @@ def train_net(args):
 
         # train for one epoch
         model.train()
-        train( args, trainLoader, model, criteria, optimizer, epoch)
+        # clx add max_epochs parameters
+        train(args, trainLoader, model, criteria, optimizer, epoch, args.max_epochs)
         model.eval()
         # validation
         val(valLoader, model)
@@ -101,6 +112,9 @@ if __name__ == '__main__':
     parser.add_argument('--savedir', default='./test_', help='directory to save the results')
     parser.add_argument('--resume', type=str, default='', help='Use this flag to load last checkpoint for training')
     parser.add_argument('--pretrained', default='', help='Pretrained ESPNetv2 weights.')
+
+    # added by clx @ 20240711
+    parser.add_argument('--hw', type=tuple, default=(360, 640), help='input_image_shape')
 
     train_net(parser.parse_args())
 
