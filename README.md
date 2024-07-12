@@ -18,6 +18,11 @@ Time consumption of the modified network:
 <img src='rknn_op_time_consume/remove-2-permute_add-conv1d.png' width='600'>
 </div>
 
+Time consumption of clx rewrite CAM & PAM module (change BCR activation function)
+<div align=center>
+<img src='rknn_op_time_consume/clx_rewrite_cam_pam_bcr.jpg' width='600'>
+</div>
+
 ## Requirement
 See `requirements.txt` for additional dependencies and version requirements.
 
