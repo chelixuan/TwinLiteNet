@@ -78,7 +78,11 @@ def train_net(args):
         model_file_name = args.savedir + os.sep + 'model_{}.pth'.format(epoch)
         poly_lr_scheduler(args, optimizer, epoch)
         for param_group in optimizer.param_groups:
-            lr = param_group['lr']
+            # original 这种写法应该是写错了 --------------------------
+            # lr = param_group['lr']
+            # clx --------------------------------------------------
+            param_group['lr'] = lr
+            # ------------------------------------------------------
         print("Learning rate: " +  str(lr))
 
         # train for one epoch
