@@ -26,7 +26,7 @@ class TotalLoss(nn.Module):
         self.tvk_loss_history = []
 
         self.seg_tver_da = TverskyLoss(mode="multiclass", alpha=0.7, beta=0.3, gamma=4.0/3, from_logits=True)
-        self.seg_tver_ll = TverskyLoss(mode="multiclass", alpha=0.9, beta=0.1, gamma=4.0/3, from_logits=True)
+        # self.seg_tver_ll = TverskyLoss(mode="multiclass", alpha=0.9, beta=0.1, gamma=4.0/3, from_logits=True)
         self.seg_focal = FocalLossSeg(mode="multiclass", alpha=0.25)
         # self.seg_criterion3 = FocalLossSeg(mode="multiclass", alpha=1)
 
@@ -34,18 +34,23 @@ class TotalLoss(nn.Module):
 
     def forward(self, outputs, targets):
         
-        seg_da,seg_ll=targets
-        out_da,out_ll=outputs
+        # seg_da,seg_ll=targets
+        # out_da,out_ll=outputs
+        seg_da=targets
+        out_da=outputs
 
         _,seg_da= torch.max(seg_da, 1)
         seg_da=seg_da.cuda()
 
-        _,seg_ll= torch.max(seg_ll, 1)
-        seg_ll=seg_ll.cuda()
+        # _,seg_ll= torch.max(seg_ll, 1)
+        # seg_ll=seg_ll.cuda()
 
 
-        tversky_loss = self.seg_tver_da(out_da, seg_da)+self.seg_tver_ll(out_ll, seg_ll)
-        focal_loss = self.seg_focal(out_ll, seg_ll)+self.seg_focal(out_da, seg_da)
+        # tversky_loss = self.seg_tver_da(out_da, seg_da)+self.seg_tver_ll(out_ll, seg_ll)
+        # focal_loss = self.seg_focal(out_ll, seg_ll)+self.seg_focal(out_da, seg_da)
+
+        tversky_loss = self.seg_tver_da(out_da, seg_da)
+        focal_loss = self.seg_focal(out_da, seg_da)
 
 
         loss = focal_loss+tversky_loss
@@ -103,28 +108,42 @@ def focal_loss_with_logits(
     References:
         https://github.com/open-mmlab/mmdetection/blob/master/mmdet/core/loss/losses.py
     """
-    target = target.type(output.type())
+    # original ----------------------------------------------------------------------------------
+    # target = target.type(output.type())
 
+    # # https://github.com/qubvel/segmentation_models.pytorch/issues/612
+    # # logpt = F.binary_cross_entropy(output, target, reduction="none")
+    # logpt = F.binary_cross_entropy_with_logits(output, target, reduction="none")
+    # pt = torch.exp(-logpt)
+
+    # # compute the loss
+    # if reduced_threshold is None:
+    #     focal_term = (1.0 - pt).pow(gamma)
+    # else:
+    #     focal_term = ((1.0 - pt) / reduced_threshold).pow(gamma)
+    #     focal_term[pt < reduced_threshold] = 1
+
+    # loss = focal_term * logpt
+
+    # if alpha is not None:
+    #     loss *= alpha * target + (1 - alpha) * (1 - target)
+
+    # if normalized:
+    #     norm_factor = focal_term.sum().clamp_min(eps)
+    #     loss /= norm_factor
+
+    # if reduction == "mean":
+    #     loss = loss.mean()
+    # if reduction == "sum":
+    #     loss = loss.sum()
+    # if reduction == "batchwise_mean":
+    #     loss = loss.sum(0)
+
+    # clx -- BCE -------------------------------------------------
+    target = target.type(output.type())
     # https://github.com/qubvel/segmentation_models.pytorch/issues/612
     # logpt = F.binary_cross_entropy(output, target, reduction="none")
-    logpt = F.binary_cross_entropy_with_logits(output, target, reduction="none")
-    pt = torch.exp(-logpt)
-
-    # compute the loss
-    if reduced_threshold is None:
-        focal_term = (1.0 - pt).pow(gamma)
-    else:
-        focal_term = ((1.0 - pt) / reduced_threshold).pow(gamma)
-        focal_term[pt < reduced_threshold] = 1
-
-    loss = focal_term * logpt
-
-    if alpha is not None:
-        loss *= alpha * target + (1 - alpha) * (1 - target)
-
-    if normalized:
-        norm_factor = focal_term.sum().clamp_min(eps)
-        loss /= norm_factor
+    loss = F.binary_cross_entropy_with_logits(output, target, reduction="none")
 
     if reduction == "mean":
         loss = loss.mean()
@@ -132,7 +151,7 @@ def focal_loss_with_logits(
         loss = loss.sum()
     if reduction == "batchwise_mean":
         loss = loss.sum(0)
-
+    # ------------------------------------------------------------
     return loss
 
 

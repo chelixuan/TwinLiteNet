@@ -65,11 +65,8 @@ def export_torchscript(model, im, file):
     f = file.with_suffix('.torchscript')
     ts = torch.jit.trace(model, im)
     ts.save(str(f))
-
-def export_onnx(model, im, file, opset=15):
+def export_onnx(model, im, file, opset=12):
     f = file.with_suffix('.onnx')
-
-    # original code ------------------------------------------------
     torch.onnx.export(model, im, f, verbose=False, opset_version=opset,
     do_constant_folding=True,
     input_names=["images"],
@@ -77,17 +74,7 @@ def export_onnx(model, im, file, opset=15):
     model_onnx = onnx.load(f)  # load onnx model
     onnx.checker.check_model(model_onnx)  # check onnx model
     onnx.save(model_onnx, f)
-    # --------------------------------------------------------------
 
-    # clx ----------------------------------------------------------
-    # torch.onnx.export(
-    #         model,
-    #         im, 
-    #         f,
-    #         opset_version = opset,
-    #         input_names=["images"],
-    #         output_names=["da", "ll"])
-    # --------------------------------------------------------------
 
 def export_engine(model, im, file):
     import tensorrt as trt
@@ -135,34 +122,9 @@ def run(
         device='',
         include=[]
     ):
-    # original code -----------------------------------------
-    # model = net.Net()
-    # model = model.cuda()
-    # model.load_state_dict(torch.load(weights))
-    # -------------------------------------------------------
-
-    # clx ---------------------------------------------------
     model = Net()
     model = model.cuda()
-    # model = torch.nn.DataParallel(model)
     model.load_state_dict(torch.load(weights))
-    # model = model.module
-
-    # from collections import OrderedDict
-    # state_dict = torch.load(weights)
-    # new_state_dict = OrderedDict()
-    # for k, v in state_dict.items():
-    #     if k[:8] != 'module.':
-    #         k = 'module.' + k
-    #         new_state_dict[k] = v
-    # model.load_state_dict(new_state_dict)
-    # model = model.module
-    
-    # from model import TwinLite as net
-    # model = net.TwinLiteNet()
-    # model = model.cuda()
-    # model.load_state_dict(torch.load(weights))
-    # -------------------------------------------------------
     device = select_device(device)
 
     include = [x.lower() for x in include]  # to lowercase

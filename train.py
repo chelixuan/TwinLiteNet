@@ -10,6 +10,47 @@ import torch.optim.lr_scheduler
 
 from loss import TotalLoss
 
+# added by clx ------------------------------------------------------
+import math
+
+initial_lr = 0.001
+gamma = 0.1
+
+# 通过迭代次数控制 lr decay
+# def adjust_learning_rate(optimizer, gamma, epoch, step_index, iteration, epoch_size):
+#     """Sets the learning rate
+#     # Adapted from PyTorch Imagenet example:
+#     # https://github.com/pytorch/examples/blob/master/imagenet/main.py
+#     """
+#     warmup_epoch = -1
+#     if epoch <= warmup_epoch:
+#         lr = 1e-6 + (initial_lr-1e-6) * iteration / (epoch_size * warmup_epoch)
+#     else:
+#         lr = initial_lr * (gamma ** (step_index))
+#     for param_group in optimizer.param_groups:
+#         param_group['lr'] = lr
+#     return lr
+
+# 通过 epoch 控制 lr decay
+def adjust_learning_rate(optimizer, gamma, epoch, decay1, decay2):
+    """Sets the learning rate
+    # Adapted from PyTorch Imagenet example:
+    # https://github.com/pytorch/examples/blob/master/imagenet/main.py
+    """
+    warmup_epoch = -1
+    lr = initial_lr
+    if epoch <= warmup_epoch:
+        lr = 1e-6 + (initial_lr-1e-6) * epoch / warmup_epoch
+    elif epoch >= decay1 and epoch <= decay2:
+        lr = initial_lr * gamma
+    elif epoch > decay2:
+        lr = initial_lr * (gamma ** (2))
+
+    for param_group in optimizer.param_groups:
+        param_group['lr'] = lr
+    return lr
+# -------------------------------------------------------------------
+
 def train_net(args):
     # load the model
     cuda_available = torch.cuda.is_available()
@@ -22,8 +63,9 @@ def train_net(args):
     args.savedir = args.savedir + '/'
 
     # create the directory if not exist
-    if not os.path.exists(args.savedir):
-        os.mkdir(args.savedir)
+    # if not os.path.exists(args.savedir):
+    #     os.mkdir(args.savedir)
+    os.makedirs(args.savedir, exist_ok=True)
 
     # original ----------------------------------------------------------------------------------------
     # trainLoader = torch.utils.data.DataLoader(
@@ -36,12 +78,12 @@ def train_net(args):
     #     batch_size=args.batch_size, shuffle=False, num_workers=args.num_workers, pin_memory=True)
     # -------------------------------------------------------------------------------------------------- 
     trainLoader = torch.utils.data.DataLoader(
-        myDataLoader.MyDataset(input_height = args.hw[0], input_width = args.hw[1],),
+        myDataLoader.MyDataset(input_height = args.height, input_width = args.width,),
         batch_size=args.batch_size, shuffle=True, num_workers=args.num_workers, pin_memory=True)
 
 
     valLoader = torch.utils.data.DataLoader(
-        myDataLoader.MyDataset(input_height = args.hw[0], input_width = args.hw[1], valid=True),
+        myDataLoader.MyDataset(input_height = args.height, input_width = args.width,valid=True),
         batch_size=args.batch_size, shuffle=False, num_workers=args.num_workers, pin_memory=True)
     # --------------------------------------------------------------------------------------------------
 
@@ -58,7 +100,11 @@ def train_net(args):
     start_epoch = 0
     lr = args.lr
 
+    # original ------------------------------------------------------------------------------------------
     optimizer = torch.optim.Adam(model.parameters(), lr, (0.9, 0.999), eps=1e-08, weight_decay=5e-4)
+    # clx -----------------------------------------------------------------------------------------------
+    # optimizer = torch.optim.SGD(model.parameters(), lr=initial_lr, momentum=0.9, weight_decay=5e-4)
+    # ---------------------------------------------------------------------------------------------------
 
     if args.resume:
         if os.path.isfile(args.resume):
@@ -76,31 +122,42 @@ def train_net(args):
     for epoch in range(start_epoch, args.max_epochs):
 
         model_file_name = args.savedir + os.sep + 'model_{}.pth'.format(epoch)
+        # original ----------------------------------------------------------------------------------------
         poly_lr_scheduler(args, optimizer, epoch)
+        # clx sgd------------------------------------------------------------------------------------------
+        # decay1 = int(0.7 * args.max_epochs)
+        # decay2 = int(0.85 * args.max_epochs)
+        # lr = adjust_learning_rate(optimizer, gamma, epoch, decay1, decay2)
+        # -------------------------------------------------------------------------------------------------
+
+        
+        # original -- 代码应该是错的 -------------------------------------------------------------------------
+        # for param_group in optimizer.param_groups:
+        #     lr = param_group['lr']
+        # clx ----------------------------------------------------------------------------------------------
         for param_group in optimizer.param_groups:
-            # original 这种写法应该是写错了 --------------------------
-            # lr = param_group['lr']
-            # clx --------------------------------------------------
             param_group['lr'] = lr
-            # ------------------------------------------------------
+        # --------------------------------------------------------------------------------------------------
         print("Learning rate: " +  str(lr))
 
         # train for one epoch
         model.train()
         # clx add max_epochs parameters
-        train(args, trainLoader, model, criteria, optimizer, epoch, args.max_epochs)
+        train( args, trainLoader, model, criteria, optimizer, epoch, args.max_epochs)
         model.eval()
         # validation
         val(valLoader, model)
-        torch.save(model.state_dict(), model_file_name)
         
-        save_checkpoint({
-            'epoch': epoch + 1,
-            'state_dict': model.state_dict(),
-            'optimizer': optimizer.state_dict(),
-            'lr': lr
-        }, args.savedir + 'checkpoint.pth.tar')
+        # 修改 ckpt 保存频率
+        if (epoch + 1) % 50 == 0 or epoch == args.max_epochs or epoch+1 == args.max_epochs:
+            torch.save(model.state_dict(), model_file_name)
 
+            save_checkpoint({
+                'epoch': epoch + 1,
+                'state_dict': model.state_dict(),
+                'optimizer': optimizer.state_dict(),
+                'lr': lr
+            }, args.savedir + 'checkpoint.pth.tar')
         
 
 
@@ -118,7 +175,8 @@ if __name__ == '__main__':
     parser.add_argument('--pretrained', default='', help='Pretrained ESPNetv2 weights.')
 
     # added by clx @ 20240711
-    parser.add_argument('--hw', type=tuple, default=(360, 640), help='input_image_shape')
+    parser.add_argument('--height', type=int, default=720, help='input_image_height')
+    parser.add_argument('--width', type=int, default=1280, help='input_image_width')
 
     train_net(parser.parse_args())
 

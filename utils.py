@@ -119,15 +119,15 @@ def val(val_loader, model):
 
 
     DA=SegmentationMetric(2)
-    LL=SegmentationMetric(2)
+    # LL=SegmentationMetric(2)
 
     da_acc_seg = AverageMeter()
     da_IoU_seg = AverageMeter()
     da_mIoU_seg = AverageMeter()
 
-    ll_acc_seg = AverageMeter()
-    ll_IoU_seg = AverageMeter()
-    ll_mIoU_seg = AverageMeter()
+    # ll_acc_seg = AverageMeter()
+    # ll_IoU_seg = AverageMeter()
+    # ll_mIoU_seg = AverageMeter()
     total_batches = len(val_loader)
     
     total_batches = len(val_loader)
@@ -144,14 +144,16 @@ def val(val_loader, model):
         with torch.no_grad():
             output = model(input_var)
 
-        out_da,out_ll=output
-        target_da,target_ll=target
+        # out_da,out_ll=output
+        # target_da,target_ll=target
+        out_da=output
+        target_da=target
 
         _,da_predict=torch.max(out_da, 1)
         _,da_gt=torch.max(target_da, 1)
 
-        _,ll_predict=torch.max(out_ll, 1)
-        _,ll_gt=torch.max(target_ll, 1)
+        # _,ll_predict=torch.max(out_ll, 1)
+        # _,ll_gt=torch.max(target_ll, 1)
         DA.reset()
         DA.addBatch(da_predict.cpu(), da_gt.cpu())
 
@@ -165,21 +167,23 @@ def val(val_loader, model):
         da_mIoU_seg.update(da_mIoU,input.size(0))
 
 
-        LL.reset()
-        LL.addBatch(ll_predict.cpu(), ll_gt.cpu())
+        # LL.reset()
+        # LL.addBatch(ll_predict.cpu(), ll_gt.cpu())
 
 
-        ll_acc = LL.pixelAccuracy()
-        ll_IoU = LL.IntersectionOverUnion()
-        ll_mIoU = LL.meanIntersectionOverUnion()
+        # ll_acc = LL.pixelAccuracy()
+        # ll_IoU = LL.IntersectionOverUnion()
+        # ll_mIoU = LL.meanIntersectionOverUnion()
 
-        ll_acc_seg.update(ll_acc,input.size(0))
-        ll_IoU_seg.update(ll_IoU,input.size(0))
-        ll_mIoU_seg.update(ll_mIoU,input.size(0))
+        # ll_acc_seg.update(ll_acc,input.size(0))
+        # ll_IoU_seg.update(ll_IoU,input.size(0))
+        # ll_mIoU_seg.update(ll_mIoU,input.size(0))
 
     da_segment_result = (da_acc_seg.avg,da_IoU_seg.avg,da_mIoU_seg.avg)
-    ll_segment_result = (ll_acc_seg.avg,ll_IoU_seg.avg,ll_mIoU_seg.avg)
-    return da_segment_result,ll_segment_result
+    # ll_segment_result = (ll_acc_seg.avg,ll_IoU_seg.avg,ll_mIoU_seg.avg)
+    # return da_segment_result,ll_segment_result
+
+    return da_segment_result
 
 
 
