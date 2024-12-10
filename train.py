@@ -63,8 +63,6 @@ def train_net(args):
     args.savedir = args.savedir + '/'
 
     # create the directory if not exist
-    # if not os.path.exists(args.savedir):
-    #     os.mkdir(args.savedir)
     os.makedirs(args.savedir, exist_ok=True)
 
     # original ----------------------------------------------------------------------------------------
@@ -72,19 +70,24 @@ def train_net(args):
     #     myDataLoader.MyDataset(),
     #     batch_size=args.batch_size, shuffle=True, num_workers=args.num_workers, pin_memory=True)
 
-
     # valLoader = torch.utils.data.DataLoader(
     #     myDataLoader.MyDataset(valid=True),
     #     batch_size=args.batch_size, shuffle=False, num_workers=args.num_workers, pin_memory=True)
     # -------------------------------------------------------------------------------------------------- 
     trainLoader = torch.utils.data.DataLoader(
-        myDataLoader.MyDataset(input_height = args.height, input_width = args.width,),
+        myDataLoader.MyDataset(
+            train_path = args.train, val_path = args.val, 
+            input_height = args.height, input_width = args.width,
+            ),
         batch_size=args.batch_size, shuffle=True, num_workers=args.num_workers, pin_memory=True)
-
-
-    valLoader = torch.utils.data.DataLoader(
-        myDataLoader.MyDataset(input_height = args.height, input_width = args.width,valid=True),
-        batch_size=args.batch_size, shuffle=False, num_workers=args.num_workers, pin_memory=True)
+    
+    if args.validation:
+        valLoader = torch.utils.data.DataLoader(
+            myDataLoader.MyDataset(
+                train_path = args.train, val_path = args.val,
+                input_height = args.height, input_width = args.width, valid=True
+                ),
+            batch_size=args.batch_size, shuffle=False, num_workers=args.num_workers, pin_memory=True)
     # --------------------------------------------------------------------------------------------------
 
     if cuda_available:
@@ -95,7 +98,12 @@ def train_net(args):
     total_paramters = netParams(model)
     print('Total network parameters: ' + str(total_paramters))
 
-    criteria = TotalLoss()
+    # criteria = TotalLoss()
+    # clx edited @20241018 for focal / bce --------------------------------------------------------------
+    # criteria = TotalLoss(args.pixel_error_loss, )
+    # clx edited @ 20241028 for loss weight
+    criteria = TotalLoss(args.pixel_error_loss, args.alpha, args.beta)
+    # ---------------------------------------------------------------------------------------------------
 
     start_epoch = 0
     lr = args.lr
@@ -143,13 +151,18 @@ def train_net(args):
         # train for one epoch
         model.train()
         # clx add max_epochs parameters
-        train( args, trainLoader, model, criteria, optimizer, epoch, args.max_epochs)
+        train(args, trainLoader, model, criteria, optimizer, epoch, args.max_epochs)
         model.eval()
-        # validation
-        val(valLoader, model)
-        
+        # original validation --------
+        # val(valLoader, model)
+
+        # clx ----------------------------------------------------------------------------------------------
+        if args.validation:
+            val(valLoader, model)
+        # --------------------------------------------------------------------------------------------------
+
         # 修改 ckpt 保存频率
-        if (epoch + 1) % 50 == 0 or epoch == args.max_epochs or epoch+1 == args.max_epochs:
+        if (epoch + 1) % 100 == 0 or epoch == args.max_epochs or epoch+1 == args.max_epochs:
             torch.save(model.state_dict(), model_file_name)
 
             save_checkpoint({
@@ -175,8 +188,24 @@ if __name__ == '__main__':
     parser.add_argument('--pretrained', default='', help='Pretrained ESPNetv2 weights.')
 
     # added by clx @ 20240711
-    parser.add_argument('--height', type=int, default=720, help='input_image_height')
-    parser.add_argument('--width', type=int, default=1280, help='input_image_width')
-
+    # parser.add_argument('--height', type=int, default=720, help='input_image_height')
+    # parser.add_argument('--width', type=int, default=1280, help='input_image_width')
+    parser.add_argument('--height', type=int, default=360, help='input_image_height')
+    parser.add_argument('--width', type=int, default=640, help='input_image_width')
+    # added by clx @ 20241018
+    parser.add_argument('--pixel_error_loss', type=str, default="add", help='pixel_error_loss, can be focal/bce/add/mean')
+    # added by clx @ 2024.10.28
+    parser.add_argument('--alpha', type=float, default=1.0, help='weight of pixel_error_loss')
+    parser.add_argument('--beta', type=float, default=1.0, help='weight of tversky_loss')
+    # added by clx @ 2024.12.10
+    parser.add_argument('--train', 
+                        type=str, 
+                        default="/home/chelx/dataset/seg_images/images/train/train_batch_01_lyon2024/", 
+                        help='train image path')
+    parser.add_argument('--val', 
+                        type=str, 
+                        default="/home/chelx/dataset/seg_images/images/val/val_batch_01_202409_lyon/", 
+                        help='val image path')
+    parser.add_argument('--validation', type=bool, default=True, help="if val every epoch")
     train_net(parser.parse_args())
 

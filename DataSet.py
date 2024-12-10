@@ -145,10 +145,10 @@ def random_perspective(combination,  degrees=10, translate=.1, scale=.1, shear=1
 #         self.Tensor = transforms.ToTensor()
 #         self.valid=valid
 #         if valid:
-#             self.root='/home/wybj/chelx/dataset/multi_task_dataset/pool_minidata/images/val'
+#             self.root='/home/chelx/dataset/multi_task_dataset/pool_minidata/images/val'
 #             self.names=os.listdir(self.root)
 #         else:
-#             self.root='/home/wybj/chelx/dataset/multi_task_dataset/pool_minidata/images/train'
+#             self.root='/home/chelx/dataset/multi_task_dataset/pool_minidata/images/train'
 #             self.names=os.listdir(self.root)
 
 #     def __len__(self):
@@ -210,16 +210,39 @@ def random_perspective(combination,  degrees=10, translate=.1, scale=.1, shear=1
 
 # -------------------------------------------------------------------------------------------------------------
 
+def find_images(root_path, exclude_folder_name=''):
+    images = []
+    if isinstance(root_path, tuple):
+        root_path = root_path[0]
+    for root, dirs, files in os.walk(root_path):
+        if exclude_folder_name in dirs:
+            dirs.remove(exclude_folder_name)  # 跳过指定的文件夹
+        for file in files:
+            if file[-4:] in [".jpg", ".png"]:
+                image_path = os.path.join(root, file)
+                images.append(image_path.split(root_path)[1])
+                # images.append(image_path)
+                
+    return images
+
 class MyDataset(torch.utils.data.Dataset):
     '''
     Class to load the dataset
     '''
-    def __init__(self, transform=None, input_height=360, input_width=640,valid=False):
+    def __init__(self, train_path, val_path, transform=None, input_height=360, input_width=640,valid=False):
         '''
         :param imList: image list (Note that these lists have been processed and pickled using the loadData.py)
         :param labelList: label list (Note that these lists have been processed and pickled using the loadData.py)
         :param transform: Type of transformation. SEe Transforms.py for supported transformations
         '''
+        if isinstance(train_path, tuple):
+            self.train_path = train_path[0]
+        else:
+            self.train_path = train_path
+        if isinstance(val_path, tuple):
+            self.val_path = val_path[0]
+        else:
+            self.val_path = val_path,
 
         self.transform = transform
         self.Tensor = transforms.ToTensor()
@@ -227,13 +250,19 @@ class MyDataset(torch.utils.data.Dataset):
         self.width = input_width
         self.valid=valid
         if valid:
-            # self.root='/home/chelx/dataset/multi_task_dataset/pool_minidata/images/val'
-            self.root = '/home/chelx/dataset/seg_images/images/val/val_batch_01_202409_lyon/'
-            self.names=os.listdir(self.root)
+            # self.root = '/home/chelx/dataset/seg_images/images/val/val_batch_01_202409_lyon/'
+            # self.names=os.listdir(self.root)
+
+            self.root = self.val_path
+            self.names = find_images(self.root)
         else:
-            # self.root='/home/chelx/dataset/multi_task_dataset/pool_minidata/images/train'
-            self.root = '/home/chelx/dataset/seg_images/images/train/train_batch_01_202409_lyon/'
-            self.names=os.listdir(self.root)
+            # self.root = '/home/chelx/dataset/seg_images/images/train/train_batch_01_lyon2024/'
+            # self.names=os.listdir(self.root)
+
+            self.root = self.train_path
+            self.names = find_images(self.root)
+
+            print(f"\nnum_train_images : {len(self.names)} \n")
 
     def __len__(self):
         return len(self.names)
@@ -249,22 +278,27 @@ class MyDataset(torch.utils.data.Dataset):
         
         W_ = self.height
         H_ = self.width
-        image_name=os.path.join(self.root,self.names[idx])
+
+        # image_name=os.path.join(self.root, self.names[idx])
+        if isinstance(self.root, tuple):
+            image_name=os.path.join(self.root[0], self.names[idx])
+        else:
+            image_name=os.path.join(self.root, self.names[idx])
         
         image = cv2.imread(image_name)
+        # original ------------------------------------------------------------------------------------------
         # label1 = cv2.imread(image_name.replace("images","segments").replace("jpg","png"), 0)
         # label2 = cv2.imread(image_name.replace("images","lane").replace("jpg","png"), 0)
-
+        # ---------------------------------------------------------------------------------------------------
+        
         # clx
-        # image_path : /home/wybj/chelx/dataset/seg_images/images/train/train_batch_01_202409_lyon
-        # floor_path : /home/wybj/chelx/dataset/seg_images/semantic_seg_anno/floor/train_batch_01_202409_lyon
-        # wall_path : /home/wybj/chelx/dataset/seg_images/semantic_seg_anno/wall/train_batch_01_202409_lyon
-
         if self.valid:
-            label1 = cv2.imread(image_name.replace("images/val","semantic_seg_anno/floor").replace("jpg","png"), 0)
+            # label1 = cv2.imread(image_name.replace("images/val","semantic_seg_anno/floor").replace("jpg","png"), 0)
+            label1 = cv2.imread(image_name.replace("images/val","semantic_seg_anno/floor").replace("jpg","png"))
             # label2 = cv2.imread(image_name.replace("images/val","semantic_seg_anno/wall").replace("jpg","png"), 0)
         else:
-            label1 = cv2.imread(image_name.replace("images/train","semantic_seg_anno/floor").replace("jpg","png"), 0)
+            # label1 = cv2.imread(image_name.replace("images/train","semantic_seg_anno/floor").replace("jpg","png"), 0)
+            label1 = cv2.imread(image_name.replace("images/train","semantic_seg_anno/floor").replace("jpg","png"))
             # label2 = cv2.imread(image_name.replace("images/train","semantic_seg_anno/wall").replace("jpg","png"), 0)
         
 
